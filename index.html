@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hello, World!</title>
+    <style>
+        .text-box {
+            height: 100px;
+            overflow-y: auto;
+            border: 2px solid black;
+            margin-bottom: 10px;
+            padding: 10px;
+        }
+        .input-text-box {
+            width: 100%; /* Full width */
+            height: 100px; /* Adjust height for multiline input */
+            overflow-x: auto;
+            overflow-y: auto;
+            border: 2px solid black;
+            margin-bottom: 10px;
+            padding: 10px;
+            white-space: pre;
+            font-family: monospace; /* Monospace font */
+        }
+        .msg {
+            margin: 5px 0;
+            padding: 8px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <section>
+        <h1>Alice</h1>
+        <section>
+            <button id="activeRequestButton">
+                Generate Connection Request From Alice To Bob
+            </button>
+            <section class="text-box" id="active-req-text">
+            </section>
+
+            <button id="activeResponseButton">
+                Paste Connection Response From Bob To Alice
+            </button>
+            <section>
+                <textarea id="active-res-text" class="input-text-box" placeholder="Paste Connection Request from Bob here..."></textarea>
+            </section>
+
+            <section>
+                <label for="active-message"
+                >Enter a message:
+                    <input
+                            type="text"
+                            name="active-message"
+                            id="active-message"
+                            placeholder="Message text"
+                            inputmode="latin"
+                            size="60"
+                            maxlength="120"
+                            disabled />
+                </label>
+                <button id="activeSendButton" name="sendButton" class="buttonright" disabled>
+                    Send
+                </button>
+            </section>
+            <section id="active-receive">
+                <div class="text-box" id="activeReceiveBox"></div>
+            </section>
+        </section>
+
+        <h1>Bob</h1>
+        <section>
+            <button id="passiveRequestButton">
+                Acknowledge Connection From Alice To Bob
+            </button>
+            <section>
+                <textarea id="passive-req-text" class="input-text-box" placeholder="Paste Connection Request from Alice here..."></textarea>
+            </section>
+
+            <button id="passiveResponseButton">
+                Copy Connection Response From Bob To Alice
+            </button>
+            <section class="text-box" id="passive-res-text">
+            </section>
+        </section>
+
+        <section>
+            <label for="passive-message"
+            >Enter a message:
+                <input
+                        type="text"
+                        name="passive-message"
+                        id="passive-message"
+                        placeholder="Message text"
+                        inputmode="latin"
+                        size="60"
+                        maxlength="120"
+                        disabled />
+            </label>
+            <button id="passiveSendButton" name="sendButton" class="buttonright" disabled>
+                Send
+            </button>
+        </section>
+        <section id="passive-receive">
+            <div class="text-box" id="passiveReceiveBox"></div>
+        </section>
+
+    </section>
+
+    <script>
+        function setupActiveRequest(env) {
+            // Create the local connection and its event listeners
+            env.connection = new RTCPeerConnection();
+
+            // Create the data channel and establish its event listeners
+            env.channel = env.connection.createDataChannel("sendChannel");
+            env.channel.onmessage = (event) => handleReceiveMessage(env, event);
+            env.channel.onopen = () => {
+                console.log("Active Send channel is open")
+                handleSendChannelStatusChange(env);
+            }
+            env.channel.onclose = () => {
+                console.log("Active Send channel is closed")
+                handleSendChannelStatusChange(env);
+            }
+
+            // Set up the ICE candidates for the two peers
+            let finishedGathering = false;
+            env.connection.onicecandidate = (event) => {
+                if (finishedGathering) {
+                    console.error("Received unexpected ICE candidate after gathering was finished: ", event.candidate)
+                    return
+                }
+                if (!event.candidate) {
+                    finishedGathering = true
+                    console.log("Finished gathering ICE candidates for initial connection")
+                    let offer = JSON.stringify(env.connection.localDescription)
+                    env.activeRequestText.innerHTML = `<pre>${offer}</pre>`
+                    env.offer = offer // TODO: Add button to copy.
+                } else {
+                    console.log("New ICE candidate: ", event.candidate)
+                }
+            }
+
+            document.addEventListener('click', (event) => {
+                if (event.target.id === 'activeResponseButton') {
+                    let response = JSON.parse(env.activeResponseText.value)
+                    env.connection.setRemoteDescription(response)
+                        .then(() => console.log("Remote description set", env.connection.remoteDescription))
+                }
+            }, false)
+
+            document.addEventListener('click', (event) => {
+                if (event.target.id === 'activeSendButton') {
+                    sendMessage(env)
+                }
+            }, false)
+        }
+
+        function startActiveRequest(env) {
+            env.connection.createOffer()
+                .then(offer => env.connection.setLocalDescription(offer))
+                .then(() => console.log("Local description set, pending ack. Check ICE candidate info", env.connection.localDescription)) // TODO: Put this in the chat box.
+        }
+
+        function setupPassiveRequest(env) {
+            // Create the local connection and its event listeners
+            env.connection = new RTCPeerConnection();
+
+            env.connection.ondatachannel = (event) => {
+                console.log("Received data channel event: ", event)
+                env.channel = event.channel;
+                env.channel.onmessage = (event) => handleReceiveMessage(env, event);
+                env.channel.onopen = () => handleSendChannelStatusChange(env);
+                env.channel.onclose = () => handleSendChannelStatusChange(env);
+            }
+
+            env.connection.onicecandidate = (event) => {
+                if (!event.candidate) {
+                    console.log("Finished gathering ICE candidates for response")
+                    env.passiveResponseText.innerHTML = `<pre>${JSON.stringify(env.connection.localDescription)}</pre>`
+                } else {
+                    console.log("New ICE candidate: ", event.candidate)
+                }
+            }
+
+            document.addEventListener('click', (event) => {
+                if (event.target.id === 'passiveSendButton') {
+                    sendMessage(env)
+                }
+            }, false)
+        }
+
+        async function startPassiveRequest(env) {
+            // Read from the text box and parse the ICE candidates
+            const offer = JSON.parse(env.passiveRequestText.value);
+            console.log("Received offer: ", offer)
+            await env.connection.setRemoteDescription(offer)
+
+            // Update text area with response
+            let answer = await env.connection.createAnswer()
+            await env.connection.setLocalDescription(answer)
+        }
+
+        // Handles clicks on the "Send" button by transmitting
+        // a message to the remote peer.
+        function sendMessage(env) {
+            console.log("send message: ", env.messageInputBox.value)
+            let messageInputBox = env.messageInputBox;
+            let message = messageInputBox.value;
+            env.channel.send(message);
+
+            // Clear the input box and re-focus it, so that we're
+            // ready for the next message.
+            messageInputBox.value = "";
+            messageInputBox.focus();
+        }
+
+        // Handle status changes on the local end of the data
+        // channel; this is the end doing the sending of data
+        // in this example.
+        function handleSendChannelStatusChange(env) {
+            if (env.channel) {
+                let state = env.channel.readyState;
+                console.log("Send channel's status has changed to " + state);
+
+                if (state === "open") {
+                    env.messageInputBox.disabled = false;
+                    env.messageInputBox.focus();
+                    env.sendButton.disabled = false;
+                } else {
+                    env.messageInputBox.disabled = true;
+                    env.sendButton.disabled = true;
+                }
+            }
+        }
+
+        // Handle onmessage events for the receiving channel.
+        // These are the data messages sent by the sending channel.
+        function handleReceiveMessage(env, event) {
+            console.log("Received message: ", event.data)
+            let receiveBox = env.receiveBox;
+            receiveBox.innerHTML += `<div class="msg">${event.data}</div>`
+        }
+
+        let activeEnv = {
+            'activeRequestButton': document.getElementById('activeRequestButton'),
+            'activeResponseButton': document.getElementById('activeResponseButton'),
+            'activeRequestText': document.getElementById('active-req-text'),
+            'activeResponseText': document.getElementById('active-res-text'),
+            'messageInputBox': document.getElementById('active-message'),
+            'receiveBox': document.getElementById('activeReceiveBox'),
+            'sendButton': document.getElementById('activeSendButton'),
+            'connection': null,
+            'channel': null,
+            'offer': ''
+        }
+
+        let passiveEnv = {
+            'passiveRequestButton': document.getElementById('passiveRequestButton'),
+            'passiveResponseButton': document.getElementById('passiveResponseButton'),
+            'passiveRequestText': document.getElementById('passive-req-text'),
+            'passiveResponseText': document.getElementById('passive-res-text'),
+            'messageInputBox': document.getElementById('passive-message'),
+            'receiveBox': document.getElementById('passiveReceiveBox'),
+            'sendButton': document.getElementById('passiveSendButton'),
+            'connection': null,
+            'channel': null,
+            'offer': ''
+        }
+
+        setupActiveRequest(activeEnv)
+        setupPassiveRequest(passiveEnv)
+
+        activeEnv.activeRequestButton.addEventListener('click', () => startActiveRequest(activeEnv), false);
+        passiveEnv.passiveRequestButton.addEventListener('click', () => startPassiveRequest(passiveEnv), false);
+    </script>
+</body>
+</html>
