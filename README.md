@@ -13,3 +13,5 @@ Goal: Provide serverless WebRTC (no need for signal server / relay servers) for 
 - Can just use messaging apps to do signalling.
 - Relay not needed in most LAN setups.
 - Just need to compress the handshake size down.
+
+https://github.com/user-attachments/assets/09f54f08-4eea-4fe8-872d-74b9a24080a5
