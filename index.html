@@ -80,7 +80,7 @@
             </section>
 
             <button id="passiveResponseButton">
-                Generate & Copy Connection Response From Bob To Alice
+                Copy Connection Response From Bob To Alice
             </button>
             <section class="text-box" id="passive-res-text">
             </section>
@@ -138,7 +138,8 @@
                     console.log("Finished gathering ICE candidates for initial connection")
                     let offer = JSON.stringify(env.connection.localDescription)
                     env.activeRequestText.innerHTML = `<pre>${offer}</pre>`
-                    env.offer = offer // TODO: Add button to copy.
+                    env.offer = offer
+                    navigator.clipboard.writeText(offer)
                 } else {
                     console.log("New ICE candidate: ", event.candidate)
                 }
@@ -162,7 +163,7 @@
         function startActiveRequest(env) {
             env.connection.createOffer()
                 .then(offer => env.connection.setLocalDescription(offer))
-                .then(() => console.log("Local description set, pending ack. Check ICE candidate info", env.connection.localDescription)) // TODO: Put this in the chat box.
+                .then(() => console.log("Local description set, pending ack. Check ICE candidate info", env.connection.localDescription))
         }
 
         function setupPassiveRequest(env) {
@@ -180,7 +181,9 @@
             env.connection.onicecandidate = (event) => {
                 if (!event.candidate) {
                     console.log("Finished gathering ICE candidates for response")
-                    env.passiveResponseText.innerHTML = `<pre>${JSON.stringify(env.connection.localDescription)}</pre>`
+                    let answer = JSON.stringify(env.connection.localDescription)
+                    env.passiveResponseText.innerHTML = `<pre>${answer}</pre>`
+                    navigator.clipboard.writeText(answer)
                 } else {
                     console.log("New ICE candidate: ", event.candidate)
                 }
